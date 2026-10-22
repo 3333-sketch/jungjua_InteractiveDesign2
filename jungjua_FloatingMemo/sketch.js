@@ -15,14 +15,10 @@ function seed(){
   const t=Date.now();
   const m=(id,text,ageD,extra={})=>Object.assign({id,text,img:null,created:t-ageD*DAY,touched:t-ageD*DAY,warm:false,status:'float'},extra);
   return {offset:0,nextId:20,memos:[
-    m(1,'전시 포스터, 반투명 레이어 겹치기로',0.1),
-    m(2,'인터랙션 과제 금요일 6시 마감',1,{warm:true}),
-    m(3,'엄마 생신 선물 → 필름카메라?',2.5),
-    m(4,"버스에서 들은 노래, 가사에 '파란 새벽'",4.2),
-    m(5,'우산 학교 사물함에 있음',6.1),
-    m(6,'앱 이름 후보: 흐림, 서림, 김',10,{status:'archived',archivedAt:t-3*DAY}),
-    m(7,'카페 2층 창가 자리 콘센트 있음',12,{status:'archived',archivedAt:t-2*DAY}),
-    m(8,'이번 학기 끝나면 이 프로젝트 포트폴리오에 넣기',0.5),
+    m(1,'수-커디 준비물 사기',0.1),
+    m(2,'금-포폴 발표',1,{warm:true}),
+    m(3,'수-포폴 제작',2.5),
+    m(4,'목-인터렉 메일',4.2),
   ]};
 }
 let state=load()||seed();
