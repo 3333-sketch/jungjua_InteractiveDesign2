@@ -357,6 +357,7 @@ const sfx=(()=>{
     knock(n){ bell(98+n*6,{vol:.22,dur:.35,partials:[[1,1],[2.1,.3],[3.3,.1]]}); noise(.05,{vol:.12,f0:900,f1:400,q:1.5,attack:.002}) },
     rush(){ noise(1.1,{vol:.07,f0:400,f1:3000,q:.5,attack:.2}) },
     tick(i){ bell(784*Math.pow(2,SCALE[i%5]/12),{vol:.04,dur:.5}) },
+    reset(){ noise(1.2,{vol:.12,f0:300,f1:6000,q:.4,attack:.05}); [523,659,784,1046].forEach((f,i)=>bell(f,{t:.1+i*.06,vol:.06,dur:1.6})) },
     shake(){for(let i=0;i<9;i++) bell(523.25*Math.pow(2,(SCALE[i%5]+12*Math.floor(Math.random()*2))/12),{t:i*0.045+Math.random()*.03,vol:.05,dur:.9})}
   };
 })();
@@ -572,10 +573,19 @@ function cancelWrite(){input.value=''; hasInk=false; commitWrite()}
 /* ---------- the hidden orb: drawing three circles with the cursor (any size, anywhere) turns it green ---------- */
 /* counts how far the cursor's direction keeps turning the same way; three full turns = three circles */
 const swirl={hx:null,hy:null,head:null,turn:0,last:0,turns:0};
+let swirlTouchOutside=false;
+document.addEventListener('pointerdown',e=>{
+  if(e.pointerType!=='touch'){ swirlTouchOutside=false; return }
+  const r=wrap.getBoundingClientRect();
+  swirlTouchOutside=Math.hypot(e.clientX-r.left-C,e.clientY-r.top-C)>R+6&&!(e.target.closest&&e.target.closest('.stand,#trash,#detail,button'));
+  swirlReset();
+},true);
+document.addEventListener('pointerup',e=>{ if(e.pointerType==='touch'){ swirlTouchOutside=false; swirlReset() } },true);
 function swirlReset(){ swirl.hx=swirl.hy=null; swirl.head=null; swirl.turn=0; swirl.turns=0; wrap.style.setProperty('--mix','0') }
 document.addEventListener('pointermove',e=>{
   if(trashOpen||detailBody||exiting) return;
-  if(e.buttons){ if(swirl.turn) swirlReset(); return }
+  /* mouse/trackpad: count only while not pressing. touch: count a finger that started on the empty space outside the orb */
+  if(e.buttons&&!(e.pointerType==='touch'&&swirlTouchOutside)){ if(swirl.turn) swirlReset(); return }
   const t=performance.now();
   if(t-swirl.last>700&&swirl.hx!==null) swirlReset();
   swirl.last=t;
@@ -771,9 +781,15 @@ wrap.addEventListener('pointermove',e=>{
     const prev=g.path[g.path.length-1];
     g.path.push(p); if(g.path.length>500) g.path.shift();
     trail.push(p);
-    { const a=Math.atan2(p.y,p.x); let da=a-g.ang; if(da>Math.PI)da-=TAU; if(da<-Math.PI)da+=TAU; g.ang=a;
-      if(Math.hypot(p.x,p.y)>R*0.35) g.wind+=da;
-      const steps=Math.floor(-g.wind/(Math.PI*0.44));
+    { /* undo: while pressing, draw small counter-clockwise circles anywhere in the empty orb; one circle = one step back */
+      if(g.lx===undefined){ g.lx=p.x; g.ly=p.y }
+      const ddx=p.x-g.lx, ddy=p.y-g.ly;
+      if(Math.hypot(ddx,ddy)>=3){
+        g.lx=p.x; g.ly=p.y; const h=Math.atan2(ddy,ddx);
+        if(g.head!==undefined){ let dh=h-g.head; if(dh>Math.PI)dh-=TAU; if(dh<-Math.PI)dh+=TAU; if(Math.abs(dh)<Math.PI*0.6) g.wind+=dh }
+        g.head=h;
+      }
+      const steps=Math.floor(-g.wind/TAU);
       while(g.rewound<steps){
         g.rewound++; clearTimeout(g.hold); g.moved=true;
         const ok=undo(); sfx.rewind(ok);
@@ -940,8 +956,50 @@ standEl.addEventListener('pointerdown',e=>{
   sfx.unlock(); const t=performance.now(); knocks=knocks.filter(k=>t-k<2600); knocks.push(t);
   standEl.classList.remove('knock'); void standEl.offsetWidth; standEl.classList.add('knock'); setTimeout(()=>standEl.classList.remove('knock'),90);
   sfx.knock(knocks.length); buzz(8);
-  if(knocks.length>=5){knocks=[]; openTrash()}
+  if(knocks.length>=5){knocks=[]; openTrash(); return}
+  try{standEl.setPointerCapture(e.pointerId)}catch(_){}
+  hold.start=t; hold.knockUndone=false; hold.sec=0; hold.down=true;
+  cancelAnimationFrame(hold.raf); hold.raf=requestAnimationFrame(holdTick);
 });
+/* ---------- hold the stand for 5 seconds to empty the orb ---------- */
+const hold={start:0,raf:0,knockUndone:false,sec:0,down:false};
+/* p 0→1: lower slab, upper slab, then the whole orb from bottom to top */
+const clamp01=v=>Math.max(0,Math.min(1,v));
+function setCharge(p){
+  standEl.style.setProperty('--p1',clamp01(p/0.175).toFixed(3));
+  standEl.style.setProperty('--p2',clamp01((p-0.175)/0.175).toFixed(3));
+  wrap.style.setProperty('--p3',clamp01((p-0.35)/0.65).toFixed(3));
+}
+function drainCharge(){ const f=$('#fill'); f.classList.add('drain'); setCharge(0); setTimeout(()=>f.classList.remove('drain'),750) }
+function holdTick(){
+  if(!hold.start) return;
+  const el=performance.now()-hold.start;
+  if(el>300&&!hold.knockUndone){ hold.knockUndone=true; knocks.pop() }   /* a long press is not a knock */
+  const p=clamp01((el-300)/8000); setCharge(p);
+  const s=Math.floor(el/1000); if(s>hold.sec){ hold.sec=s; sfx.tick(s+2); buzz(6) }
+  if(p>=1){ hold.start=0; resetOrb(); drainCharge(); return }
+  hold.raf=requestAnimationFrame(holdTick);
+}
+function holdCancel(){
+  hold.down=false;
+  if(!hold.start) return; hold.start=0; cancelAnimationFrame(hold.raf); drainCharge();
+}
+['pointerup','pointercancel','lostpointercapture'].forEach(t=>standEl.addEventListener(t,holdCancel));
+function resetOrb(){
+  const mine=m=>m&&!!m.secret===secretMode;
+  const goneMemos=state.memos.filter(mine), goneTrash=state.trash.filter(t=>mine(t.m));
+  const ids=new Set([...goneMemos.map(m=>m.id),...goneTrash.map(t=>t.m.id)]);
+  const goneLinks=state.links.filter(l=>ids.has(l[0])||ids.has(l[1]));
+  state.memos=state.memos.filter(m=>!mine(m)); state.trash=state.trash.filter(t=>!mine(t.m)); state.links=state.links.filter(l=>!ids.has(l[0])&&!ids.has(l[1]));
+  if(writing){ input.value=''; hasInk=false; leaveWrite() }
+  for(const b of bodies.values()) if(!b.dying) removeBody(b,'absorb',420);
+  for(const grp of [...shardGroups]) clearShards(grp,false);
+  hist.length=0; save(); renderSed(); updateFog();
+  /* rewinding right after can bring everything back */
+  record(()=>{ state.memos.push(...goneMemos); state.trash.push(...goneTrash); state.links.push(...goneLinks); spawnAll(); renderSed(); updateFog() });
+  wrap.classList.add('flash'); setTimeout(()=>wrap.classList.remove('flash'),700);
+  sfx.reset(); buzz([30,60,30]);
+}
 function standPoint(){const r=standEl.getBoundingClientRect(); return {x:r.left+r.width/2, y:r.top+r.height/2}}
 function openTrash(){
   if(trashOpen) return; trashOpen=true; if(writing) commitWrite();

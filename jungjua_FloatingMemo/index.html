@@ -31,7 +31,7 @@
 }
 [hidden]{display:none!important}
 .label .sub{font-size:.6em; font-weight:500; color:var(--mute)}
-html,body{height:100%}
+html,body{height:100%; touch-action:none}
 body{
   background:var(--paper); color:var(--midnight); font-family:var(--f-ui); margin:0; overflow:hidden;
   display:grid; grid-template-rows:auto 1fr auto;
@@ -51,9 +51,21 @@ header{padding-block:28px 0; position:relative; z-index:3}
 #wrap{position:relative; width:min(100%, 540px, calc(100vh - 240px)); width:min(100%, 540px, calc(100dvh - 240px)); aspect-ratio:1; max-width:100%; touch-action:none; z-index:2}
 .orb{position:absolute; inset:0; border-radius:50%; overflow:hidden; background:var(--frost)}
 .stand{display:flex; flex-direction:column; align-items:center; margin-top:-14px; width:min(100%, 540px, calc(100vh - 240px)); width:min(100%, 540px, calc(100dvh - 240px)); position:relative; z-index:1}
-.stand i{display:block; background:var(--midnight)}
+.stand i{display:block; background:var(--midnight); position:relative; overflow:hidden}
+/* holding the stand fills it with light from the bottom up: lower slab first, then the upper one */
+.stand i::after{content:""; position:absolute; inset:0; background:#a996ff; transform:scaleY(var(--p,0)); transform-origin:bottom}
+.stand i:last-child{--p:var(--p1,0)}
+/* the stand is ribbed like a dial; dragging it sideways turns the ribs */
+
+.stand i:first-child{--p:var(--p2,0)}
+body.secret .stand i::after{background:#8fcf8a}
+#wrap.flash .orb{filter:brightness(1.12)}
+/* after the stand, the light keeps rising inside the orb up to the top */
+#fill{position:absolute; left:0; right:0; bottom:0; height:calc(var(--p3,0) * 100%); background:rgba(169,150,255,.55); pointer-events:none}
+#fill.drain{transition:height .7s ease}
+body.secret #fill{background:rgba(143,207,138,.55)}
 .stand{cursor:pointer; transition:translate .09s}
-.orb{transition:background .6s; background:color-mix(in srgb, var(--frost), #dcefd8 calc(var(--mix,0) * 100%))}
+.orb{transition:background .6s, filter .5s; background:color-mix(in srgb, var(--frost), #dcefd8 calc(var(--mix,0) * 100%))}
 #wrap.secret{--deep:#3e9a50; --amethyst:var(--leaf); --frost:var(--mint); --sediment:#bfdcbb; --sediment-2:#acd1a7}
 body.secret{--amethyst:var(--leaf); --frost:var(--mint)}
 body.secret .tmemo{color:#8fbf95}
@@ -202,6 +214,7 @@ button:focus-visible{outline:2px solid var(--amethyst); outline-offset:3px}
     <div id="wrap" aria-label="수정구슬 메모 공간">
       <div class="orb">
         <div class="sed" id="sed"><div id="sedLayers"></div><span id="sedLabel"></span></div>
+        <div id="fill"></div>
       </div>
       <div id="emptyHint" hidden></div>
       <canvas id="links"></canvas>
