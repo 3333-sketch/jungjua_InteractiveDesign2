@@ -1,4 +1,4 @@
-// Floating Memo for Passing Thoughts
+/* Floating Memo for Passing Thoughts */
 (()=>{
 const $=s=>document.querySelector(s);
 const wrap=$('#wrap'), layer=$('#layer'), sedEl=$('#sed'), sedLayers=$('#sedLayers'), sedLabel=$('#sedLabel');
@@ -8,22 +8,43 @@ const DAY=864e5, TAU=Math.PI*2;
 const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
 let S=400,R=200,C=200,K=1,dpr=Math.min(2,window.devicePixelRatio||1);
 
-// state
-function load(){try{const s=localStorage.getItem('hurim-v1');return s?JSON.parse(s):null}catch(e){return null}}
-function save(){try{localStorage.setItem('hurim-v1',JSON.stringify(state))}catch(e){}}
+/* ---------- state ---------- */
+/* fresh start: memos saved by earlier test versions are cleared once; from now on only memos written here are kept */
+const STORE='floatingmemo-v1';
+try{localStorage.removeItem('hurim-v1')}catch(e){}
+function load(){try{const s=localStorage.getItem(STORE);return s?JSON.parse(s):null}catch(e){return null}}
+function save(){try{localStorage.setItem(STORE,JSON.stringify(state))}catch(e){}}
 function seed(){
   const t=Date.now();
-  const m=(id,text,ageD,extra={})=>Object.assign({id,text,img:null,created:t-ageD*DAY,touched:t-ageD*DAY,warm:false,status:'float'},extra);
-  return {offset:0,nextId:20,memos:[
-    m(1,'수-커디 준비물 사기',0.1),
-    m(2,'금-포폴 발표',1,{warm:true}),
-    m(3,'수-포폴 제작',2.5),
-    m(4,'목-인터렉 메일',4.2),
-  ]};
+  /* default memos: px/py place each one inside the orb as a fraction of its radius */
+  const m=(id,text,px,py,extra={})=>Object.assign({id,text,img:null,created:t,touched:t,warm:false,status:'float',px,py},extra);
+  /* a first visit starts with a completely empty orb: no memos, no sediment, no deleted memos */
+  return {offset:0,nextId:20,links:[],trash:[],noSamples:true,seed2:true,seed3:true,memos:[]};
 }
 let state=load()||seed();
-if(!Array.isArray(state.links)) state.links=[[1,2]];
+if(!Array.isArray(state.links)) state.links=[];
 if(!Array.isArray(state.trash)) state.trash=[];
+/* one-time cleanup: remove the old example memos (ids below 20), keep everything the user wrote */
+if(!state.noSamples){
+  state.memos=state.memos.filter(m=>m.id>=20);
+  state.trash=state.trash.filter(t=>t.m&&t.m.id>=20);
+  state.links=state.links.filter(l=>l[0]>=20&&l[1]>=20);
+  state.noSamples=true; save();
+}
+/* browsers that opened the empty version get the default memos once; anyone with their own memos keeps them */
+if(!state.seed2){
+  if(!state.memos.length&&!state.trash.length){ const s=seed(); state.memos=s.memos; state.nextId=Math.max(state.nextId||20,s.nextId) }
+  state.seed2=true; save();
+}
+/* one-time cleanup: remove every memo the app placed by itself (default memos carry a px position), wherever it ended up */
+if(!state.seed3){
+  const placed=m=>m&&m.px!=null;
+  state.memos=state.memos.filter(m=>!placed(m));
+  state.trash=state.trash.filter(t=>!placed(t.m));
+  const ids=new Set([...state.memos.map(m=>m.id),...state.trash.map(t=>t.m&&t.m.id)]);
+  state.links=state.links.filter(l=>ids.has(l[0])&&ids.has(l[1]));
+  state.seed3=true; save();
+}
 for(const m of state.memos) if(m.status==='sealed'){m.status='float'; delete m.sealUntil}
 const now=()=>Date.now()+state.offset*DAY;
 const ageOf=m=>Math.max(0,(now()-m.touched)/DAY)*(m.secret?2:1);
@@ -34,7 +55,7 @@ const short=t=>{t=(t||'손글씨 메모').replace(/\n/g,' ');return t.length>14?
 const fmtShort=ts=>{const d=new Date(ts);return `${d.getMonth()+1}/${d.getDate()}`};
 const fmtLong=ts=>new Date(ts).toLocaleDateString('ko-KR',{month:'long',day:'numeric',weekday:'short'});
 
-// geometry 
+/* ---------- geometry ---------- */
 function measure(){
   const oldR=R; const r=wrap.getBoundingClientRect();
   S=r.width; C=S/2; R=S/2-2; K=Math.max(.7,Math.min(1.3,S/420));
@@ -52,17 +73,41 @@ function paintFog(ctx,alpha,seedN){
   ctx.restore();
 }
 const archivedList=()=>state.memos.filter(m=>m.status==='archived'&&!!m.secret===secretMode).sort((a,b)=>a.archivedAt-b.archivedAt);
-function sedTopY(){const n=archivedList().length; return R*(0.80-Math.min(n,18)*0.013)}
+/* sediment: one layer per sunk memo, newest on top, every layer shows its text; up to 5 layers, scroll for older ones */
+let sedOff=0, sedWheelT=0;
+/* every sunk memo keeps its own readable layer: layers get thinner as the pile grows, and the pile rises if it must */
+function sedMetrics(){
+  const n=archivedList().length, base=Math.max(18,R*0.085), bottom=R*0.955;
+  let lh=n?Math.max(15,Math.min(base,R*0.7/n)):base;
+  if(n*lh>R*1.3) lh=R*1.3/n;
+  return {n,lh,vis:n,bottom,top:bottom-n*lh};
+}
+function sedTopY(){ return sedMetrics().top }
+function sedWindow(){ const list=archivedList().slice().reverse(), M=sedMetrics(); sedOff=Math.max(0,Math.min(sedOff,list.length-M.vis)); return list.slice(sedOff,sedOff+M.vis) }
+function sedLayerAt(y){ const M=sedMetrics(), win=sedWindow(), i=Math.min(win.length-1,Math.floor((y-M.top)/M.lh)); return (i>=0&&win.length)?win[i]:null }
 function renderSed(){
-  const list=archivedList(); const top=sedTopY();
-  sedEl.style.height=(R-top+2)+'px';
+  const M=sedMetrics(), win=sedWindow();
+  sedEl.style.height=M.vis?(R-M.top+2)+'px':'0px'; /* no memos sunk = no band at all */
   sedLayers.innerHTML='';
-  const shown=list.slice(-16).reverse();
-  shown.forEach((m,i)=>{const el=document.createElement('i'); el.style.background=i%2?'var(--sediment-2)':'var(--sediment)'; sedLayers.appendChild(el)});
-  sedLabel.textContent=list.length?`침전층 · ${list.length}`:'';
+  win.forEach((m,i)=>{
+    const y0=M.top+i*M.lh, ym=y0+M.lh/2, chord=2*Math.sqrt(Math.max(0,R*R-ym*ym));
+    const el=document.createElement('div'); el.className='layer'; el.dataset.id=m.id;
+    const last=i===win.length-1, fs=Math.max(9,Math.min(13,M.lh*0.78));
+    el.style.top=(y0-M.top)+'px'; el.style.height=(last?(R+2-y0):M.lh)+'px'; /* the lowest layer fills down to the bottom of the orb */
+    el.style.alignItems='flex-start'; el.style.paddingTop=((M.lh-fs*1.2)/2).toFixed(1)+'px'; el.style.boxSizing='border-box';
+    /* newest layer on top is just a little darker than the glass; each older layer below is one step darker */
+    const step=win.length>1?Math.min(0.07,0.6/(win.length-1)):0, amt=0.14+i*step;
+    el.style.background=`color-mix(in srgb, var(--frost), var(--deep) ${(amt*100).toFixed(1)}%)`;
+    const s=document.createElement('span'); s.textContent=(m.text||'손글씨 메모').replace(/\n/g,' ');
+    s.style.maxWidth=Math.max(40,chord*0.78)+'px'; s.style.fontSize=fs.toFixed(1)+'px';
+    if(amt>0.52) el.classList.add('dark');
+    el.appendChild(s); sedLayers.appendChild(el);
+  });
+  const older=M.n-sedOff-win.length;
+  sedLabel.textContent='';
 }
 
-// bubbles 
+/* ---------- bubbles ---------- */
 function radiusOf(m){
   if(m.status==='sealed') return 14*K;
   const len=(m.text||'').length+(m.img?16:0);
@@ -105,11 +150,12 @@ function spawnAll(){
   for(const m of state.memos){
     if(m.status==='archived'||!!m.secret!==secretMode) continue;
     const a=Math.min(1,ageOf(m)/7);
-    addBody(m,(Math.random()-.5)*R*1.1,-R*.45+a*R*.9+(Math.random()-.5)*20);
+    if(m.px!=null) addBody(m,m.px*R,m.py*R);
+    else addBody(m,(Math.random()-.5)*R*1.1,-R*.45+a*R*.9+(Math.random()-.5)*20);
   }
 }
 
-// loop 
+/* ---------- loop ---------- */
 const trail=[];
 let last=performance.now();
 function tick(t){
@@ -169,7 +215,7 @@ function drawTrail(t){
   }
 }
 
-// constellations
+/* ---------- constellations ---------- */
 let hoverLink=-1, kin=null;
 const linkKey=(a,b)=>a<b?a+'-'+b:b+'-'+a;
 function liveLinks(){return state.links.map((l,i)=>({i,a:bodies.get(l[0]),b:bodies.get(l[1])})).filter(o=>o.a&&o.b&&!o.a.dying&&!o.b.dying)}
@@ -230,22 +276,22 @@ function drawLinks(t){
   }
 }
 
-// ambient readouts 
+/* ---------- ambient readouts ---------- */
 function updateFog(){
   const fl=state.memos.filter(m=>m.status==='float'&&!!m.secret===secretMode);
   let lv=0; for(const m of fl) lv+=Math.min(1,ageOf(m)/7)*0.085+0.02;
   lv=Math.min(0.72,lv);
-  fogC.style.opacity=lv.toFixed(2);
+  fogC.style.opacity=Math.max(0.45,lv).toFixed(2); /* a base layer of frost is always there, so the clear window around the cursor shows in both orbs */
   $('#memoCount').textContent=fl.length;
   emptyHint.hidden=fl.length>0||writing;
 }
 function updateDate(){}
 
-// toast 
+/* ---------- toast ---------- */
 function toast(){ /* no captions: feedback lives in the orb itself */ }
 function buzz(ms){try{navigator.vibrate&&navigator.vibrate(ms)}catch(e){}}
 
-// sound: every thought is a small glass note
+/* ---------- sound: every thought is a small glass note ---------- */
 const sfx=(()=>{
   let ac=null, master=null, muted=false, lastChime=0;
   const SCALE=[0,2,4,7,9];
@@ -315,13 +361,13 @@ const sfx=(()=>{
   };
 })();
 
-// history: every action can be rewound
+/* ---------- history: every action can be rewound ---------- */
 const hist=[]; let undoing=false;
 function record(fn){ if(undoing) return; hist.push(fn); if(hist.length>40) hist.shift() }
 function undo(){ const fn=hist.pop();
   if(!fn){ const e=state.trash.find(t=>!!t.m.secret===secretMode); if(!e) return false; restoreFromTrash(e,0,-R*0.3); return true } undoing=true; try{fn()}catch(e){} undoing=false; save(); updateFog(); return true }
 
-// trash: popped thoughts leave shards outside the orb
+/* ---------- trash: popped thoughts leave shards outside the orb ---------- */
 const shardGroups=new Set();
 function restoreFromTrash(entry,x,y){
   const i=state.trash.indexOf(entry); if(i<0) return null;
@@ -354,10 +400,10 @@ function spawnShards(entry,b,v){
   }
   layer.appendChild(el); placeShards(grp); shardGroups.add(grp);
   setTimeout(()=>{ if(!shardGroups.has(grp)) return; grp.x=dx/d*far; grp.y=dy/d*far; placeShards(grp); el.classList.add('spread') },180);
-  armShards(grp,60000);
+  armShards(grp,30000);
 }
 
-// actions 
+/* ---------- actions ---------- */
 function touchMemo(b){b.m.touched=now(); styleBody(b); save(); updateFog()}
 function removeBody(b,cls,ms){
   b.dying=true; b.el.classList.add(cls);
@@ -387,7 +433,14 @@ function pop(b,v){
   sfx.pop(b); const entry=deleteMemo(b,'pop'); spawnShards(entry,b,v);
 }
 function wipe(b){sfx.wipe(); deleteMemo(b,'wipe','문질러 닦아냈어요')}
+wrap.addEventListener('wheel',e=>{
+  const p=loc(e); if(Math.hypot(p.x,p.y)>R||p.y<sedTopY()) return;
+  e.preventDefault();
+  const M=sedMetrics(), t=performance.now(); if(M.n<=M.vis||t-sedWheelT<140) return;
+  sedWheelT=t; sedOff+=e.deltaY>0?1:-1; renderSed(); sfx.tick(sedOff);
+},{passive:false});
 function archive(b){
+  sedOff=0;
   const m=b.m; m.status='archived'; m.archivedAt=now(); m.warm=false; save();
   b.sinkTo=R*0.9; removeBody(b,'sink',700); sfx.sink();
   record(()=>revive(m));
@@ -465,7 +518,7 @@ function settle(){
   return msgs;
 }
 
-// writing on breath 
+/* ---------- writing on breath ---------- */
 let writing=false, brCtx=null, stroke=null, hasInk=false, bbox=null;
 const ink=document.createElement('canvas'); let inkCtx=null;
 function enterWrite(p){
@@ -506,6 +559,7 @@ function commitWrite(){
   leaveWrite();
   if(!text&&!img){toast('김이 걷혔어요');updateFog();return}
   const m={id:state.nextId++,text,img,created:now(),touched:now(),warm:false,status:'float'};
+  if(secretMode) m.secret=true;
   state.memos.push(m); save();
   const b=addBody(m,cx,cy,'born'); b.vy=-2;
   record(()=>{const bb=bodies.get(m.id); state.memos=state.memos.filter(x=>x!==m); state.links=state.links.filter(l=>!l.includes(m.id)); if(bb) removeBody(bb,'absorb',420)});
@@ -515,57 +569,76 @@ function commitWrite(){
 }
 function cancelWrite(){input.value=''; hasInk=false; commitWrite()}
 
-// the hidden orb: circling the cursor three times around the orb turns it green
-const swirl={ang:null,wind:0,last:0,turns:0};
-function swirlReset(){ swirl.ang=null; swirl.wind=0; swirl.turns=0; wrap.style.setProperty('--mix','0') }
+/* ---------- the hidden orb: drawing three circles with the cursor (any size, anywhere) turns it green ---------- */
+/* counts how far the cursor's direction keeps turning the same way; three full turns = three circles */
+const swirl={hx:null,hy:null,head:null,turn:0,last:0,turns:0};
+function swirlReset(){ swirl.hx=swirl.hy=null; swirl.head=null; swirl.turn=0; swirl.turns=0; wrap.style.setProperty('--mix','0') }
 document.addEventListener('pointermove',e=>{
   if(trashOpen||detailBody||exiting) return;
-  const r=wrap.getBoundingClientRect(), x=e.clientX-r.left-C, y=e.clientY-r.top-C, d=Math.hypot(x,y), t=performance.now();
-  const out=d<=R+4||d>R*2.6;
-  if(out||t-swirl.last>1200){ if(swirl.wind) swirlReset(); swirl.last=t; if(out) return }
+  if(e.buttons){ if(swirl.turn) swirlReset(); return }
+  const t=performance.now();
+  if(t-swirl.last>700&&swirl.hx!==null) swirlReset();
   swirl.last=t;
-  const a=Math.atan2(y,x);
-  if(swirl.ang!==null){ let da=a-swirl.ang; if(da>Math.PI)da-=TAU; if(da<-Math.PI)da+=TAU; swirl.wind+=da }
-  swirl.ang=a;
-  const turns=Math.abs(swirl.wind)/TAU;
+  if(swirl.hx===null){ swirl.hx=e.clientX; swirl.hy=e.clientY; return }
+  const dx=e.clientX-swirl.hx, dy=e.clientY-swirl.hy;
+  if(Math.hypot(dx,dy)<4) return;
+  swirl.hx=e.clientX; swirl.hy=e.clientY;
+  const h=Math.atan2(dy,dx);
+  if(swirl.head!==null){
+    let dh=h-swirl.head; if(dh>Math.PI)dh-=TAU; if(dh<-Math.PI)dh+=TAU;
+    if(Math.abs(dh)>Math.PI*0.6){ swirl.head=h; return }
+    if(swirl.turn&&Math.sign(dh)!==Math.sign(swirl.turn)&&Math.abs(dh)>0.3){ const hx=swirl.hx, hy=swirl.hy; swirlReset(); swirl.hx=hx; swirl.hy=hy; swirl.head=h; return }
+    swirl.turn+=dh;
+  }
+  swirl.head=h;
+  const turns=Math.abs(swirl.turn)/TAU;
   if(Math.floor(turns)>swirl.turns){ swirl.turns=Math.floor(turns); sfx.tick(swirl.turns+1) }
-  wrap.style.setProperty('--mix',Math.min(1,turns/3).toFixed(3));
+  wrap.style.setProperty('--mix',Math.max(0,Math.min(1,(turns-0.5)/2.5)).toFixed(3));
   if(turns>=3){ swirlReset(); if(secretMode) exitSecret(true); else enterSecret() }
 });
 function rebuildOrb(){ for(const grp of [...shardGroups]) clearShards(grp,false); hist.length=0; spawnAll(); renderSed(); updateFog() }
 function enterSecret(){
   if(secretMode) return;
-  const keep=input.value;
-  writing=false; stroke=null; hasInk=false; wrap.classList.remove('writing'); breathC.classList.add('fade');
-  secretMode=true; wrap.classList.add('secret'); rebuildOrb();
-  writeUI.hidden=false; input.value=keep;
-  setTimeout(()=>{try{input.focus({preventScroll:true})}catch(e){}},60);
+  /* the green orb opens in viewing mode, just like the violet one; text being written carries over */
+  const keep=writing?input.value:'';
+  if(writing){ hasInk=false; leaveWrite() }
+  secretMode=true; wrap.classList.add('secret'); document.body.classList.add('secret'); rebuildOrb();
+  if(keep){ enterWrite({x:0,y:-R*0.3}); input.value=keep }
   sfx.secret(true); buzz([10,40,10]);
 }
+/* writing in the green orb saves the memo but stays green, so the hidden memos can be read */
+function commitSecret(){
+  if(!secretMode) return false;
+  const text=input.value.trim(); if(!text) return false;
+  input.value='';
+  const m={id:state.nextId++,text,img:null,created:now(),touched:now(),warm:false,status:'float',secret:true};
+  state.memos.push(m); save();
+  const b=addBody(m,0,-R*.3,'born'); b.vy=-2; requestAnimationFrame(()=>requestAnimationFrame(()=>b.el.classList.remove('born')));
+  record(()=>{const bb=bodies.get(m.id); state.memos=state.memos.filter(x=>x!==m); state.links=state.links.filter(l=>!l.includes(m.id)); if(bb) removeBody(bb,'absorb',420)});
+  sfx.absorb(); updateFog(); buzz(12);
+  return true;
+}
+/* only drawing three circles again returns to the violet orb */
 function exitSecret(keepText){
   if(!secretMode||exiting) return;
-  const text=keepText?input.value.trim():'';
-  writeUI.hidden=true; input.value=''; try{input.blur()}catch(e){}
-  const finish=()=>{ exiting=false; secretMode=false; wrap.classList.remove('secret'); rebuildOrb(); sfx.secret(false) };
-  if(text){
-    const m={id:state.nextId++,text,img:null,created:now(),touched:now(),warm:false,status:'float',secret:true};
-    state.memos.push(m); save();
-    const b=addBody(m,0,-R*.3,'born'); b.vy=-2; requestAnimationFrame(()=>requestAnimationFrame(()=>b.el.classList.remove('born')));
-    sfx.absorb(); updateFog(); exiting=true; setTimeout(finish,1100);
-  } else finish();
+  let saved=false;
+  if(writing){
+    if(keepText&&(input.value.trim()||hasInk)){ commitWrite(); saved=true }
+    else { input.value=''; hasInk=false; leaveWrite() }
+  }
+  const finish=()=>{ exiting=false; secretMode=false; wrap.classList.remove('secret'); document.body.classList.remove('secret'); rebuildOrb(); sfx.secret(false) };
+  if(saved){ exiting=true; setTimeout(finish,1100) } else finish();
 }
 input.addEventListener('keydown',e=>{
   if(e.isComposing||e.keyCode===229) return;
-  if(secretMode){ if(e.key==='Enter'){e.preventDefault(); exitSecret(true)} if(e.key==='Escape'){e.preventDefault(); exitSecret(false)} return }
   if(e.key==='Enter'){e.preventDefault(); commitWrite()}
   if(e.key==='Escape'){e.preventDefault(); cancelWrite()}
 });
 document.addEventListener('pointerdown',e=>{
   if(writing&&!wrap.contains(e.target)) commitWrite();
-  else if(secretMode&&!wrap.contains(e.target)&&!(e.target.closest&&e.target.closest('.stand,#trash'))) exitSecret(true);
 },true);
 
-// gestures 
+/* ---------- gestures ---------- */
 const ptrs=new Map(); let g=null, pinch=null, lastTap={id:null,t:0};
 function loc(e){const r=wrap.getBoundingClientRect(); return {x:e.clientX-r.left-C, y:e.clientY-r.top-C, t:performance.now()}}
 function velocity(samples){
@@ -616,8 +689,6 @@ wrap.addEventListener('pointerdown',e=>{
     stroke={id:e.pointerId,last:p,p0:p}; strokeTo({x:p.x+.1,y:p.y+.1});
     return;
   }
-  if(secretMode&&!inside){ e.preventDefault(); exitSecret(true); return
-  }
   try{wrap.setPointerCapture(e.pointerId)}catch(_){}
   const bubEl=e.target.closest&&e.target.closest('.bub');
   ptrs.set(e.pointerId,{p0:p,p,target:bubEl?+bubEl.dataset.id:null});
@@ -648,10 +719,14 @@ wrap.addEventListener('pointerdown',e=>{
     return;
   }
   if(!inside){g=null;return}
-  if(p.y>sedTopY()){g={type:'sed',p0:p,moved:false};return}
+  if(p.y>sedTopY()){
+    g={type:'sed',p0:p,moved:false,m:sedLayerAt(p.y)};
+    if(g.m){const el=sedLayers.querySelector(`[data-id="${g.m.id}"]`); el&&el.classList.add('grab')}
+    return;
+  }
   g={type:'bg',p0:p,path:[p],moved:false,revs:[],lastDir:0,acc:0,hits:[],nearLink:linkNear(p),ang:Math.atan2(p.y,p.x),wind:0,rewound:0};
   trail.push({...p,brk:true});
-  g.hold=setTimeout(()=>{ if(g&&g.type==='bg'&&!g.moved){const pp=g.p0; g=null; trail.length=0; if(secretMode){try{input.focus({preventScroll:true})}catch(e){}} else enterWrite(pp)} },480);
+  g.hold=setTimeout(()=>{ if(g&&g.type==='bg'&&!g.moved){const pp=g.p0; g=null; trail.length=0; enterWrite(pp)} },480);
 });
 
 wrap.addEventListener('pointermove',e=>{
@@ -689,7 +764,7 @@ wrap.addEventListener('pointermove',e=>{
   }
   if(g.type==='sed'){
     if(moved>6) g.moved=true;
-    if(!g.done&&p.y-g.p0.y<-45){g.done=true; const b=revive(); if(b) toast(`"${short(b.m.text)}"을(를) 건져 올렸어요`)}
+    if(!g.done&&p.y-g.p0.y<-45){g.done=true; const b=revive(g.m||undefined); if(b) toast(`"${short(b.m.text)}"을(를) 건져 올렸어요`)}
     return;
   }
   if(g.type==='bg'){
@@ -725,7 +800,7 @@ function release(e,cancelled){
   const G=g; g=null; sealHint.hidden=true; clearMarks();
   if(G.type==='shard'){
     const grp=G.grp; grp.el.classList.remove('dragging');
-    if(Math.hypot(grp.x,grp.y)<R*0.92) restoreFromTrash(grp.entry,grp.x,grp.y); else armShards(grp,60000);
+    if(Math.hypot(grp.x,grp.y)<R*0.92) restoreFromTrash(grp.entry,grp.x,grp.y); else armShards(grp,30000);
     return;
   }
   if(G.type==='bub'){
@@ -746,7 +821,7 @@ function release(e,cancelled){
     if(b.m.status!=='sealed') touchMemo(b);
     return;
   }
-  if(G.type==='sed'){ if(!G.moved&&!G.done){const n=archivedList().length; toast(n?`침전층에 가라앉은 생각 ${n}개 · 위로 쓸어 올리면 건져요`:'침전층이 비어 있어요 · 방울을 바닥으로 끌어내리면 보관돼요')} return }
+  if(G.type==='sed'){ sedLayers.querySelectorAll('.grab').forEach(x=>x.classList.remove('grab')); if(!G.moved&&!G.done){const n=archivedList().length; toast(n?`침전층에 가라앉은 생각 ${n}개 · 위로 쓸어 올리면 건져요`:'침전층이 비어 있어요 · 방울을 바닥으로 끌어내리면 보관돼요')} return }
   if(G.type==='bg'){
     if(G.shook||G.rewound) return;
     if(!G.moved){ if(G.nearLink>=0){cutLinks([G.nearLink]);return} toast('빈 곳을 길게 누르면 김이 서려요');return}
@@ -779,13 +854,19 @@ function updateLamp(t,f,arr){
   lampEl.style.width=lampEl.style.height=(LR*2)+'px';
   lampEl.style.transform=`translate(${C+lamp.x-LR}px,${C+lamp.y-LR}px)`;
   lampEl.style.opacity=lamp.a.toFixed(3);
+  /* inside the clear window around the cursor memos are fully sharp; elsewhere in the orb only a little */
+  const HR=LR*1.15, nearOf=(x,y)=>Math.max(0,Math.min(1,(HR-Math.hypot(x-lamp.x,y-lamp.y))/(HR*0.45)));
+  const clarity=(x,y)=>lamp.a*(0.42+0.58*nearOf(x,y));
+  { const M=sedMetrics(); [...sedLayers.children].forEach((el,i)=>{
+      const ym=M.top+i*M.lh+M.lh/2, half=Math.sqrt(Math.max(0,R*R-ym*ym)), xn=Math.max(-half,Math.min(half,lamp.x));
+      el.style.setProperty('--sl',clarity(xn,ym).toFixed(3)) }) }
   fogC.style.setProperty('--lx',(C+lamp.x)+'px'); fogC.style.setProperty('--ly',(C+lamp.y)+'px');
   fogC.style.setProperty('--lr',(LR*1.15*lamp.a).toFixed(1)+'px');
   for(const b of arr){
     if(b.dying) continue;
     const forced=b.drag||b.reveal>t||b===detailBody||b.el.classList.contains('holding');
     const d=Math.hypot(b.x-lamp.x,b.y-lamp.y);
-    const tgt=forced?1:lamp.a;
+    const tgt=forced?1:clarity(b.x,b.y);
     const prev=b.lit; b.lit+=(tgt-b.lit)*Math.min(1,0.2*f);
     const near=lamp.on&&!forced&&d<Math.max(b.r*0.7,24*K);
     if(near&&!b.near&&b.m.status!=='sealed') sfx.chime(b); b.near=near;
@@ -806,7 +887,7 @@ wrap.addEventListener('pointerleave',e=>{ if(e.pointerType!=='touch'){ lamp.on=f
 wrap.addEventListener('pointerdown',e=>{ sfx.unlock(); clearTimeout(lampT); lampAt(loc(e),true) });
 wrap.addEventListener('pointerup',e=>{ if(e.pointerType==='touch'){ clearTimeout(lampT); lampT=setTimeout(()=>{ if(!ptrs.size) lamp.on=false },900) } });
 
-// real device shake, when the browser allows it 
+/* real device shake, when the browser allows it */
 let lastShake=0;
 window.addEventListener('devicemotion',e=>{
   const a=e.accelerationIncludingGravity; if(!a) return;
@@ -814,7 +895,7 @@ window.addEventListener('devicemotion',e=>{
   if(m>28&&performance.now()-lastShake>1800&&!writing&&detail.hidden){lastShake=performance.now(); shake()}
 });
 
-// detail (look closer)
+/* ---------- detail (look closer) ---------- */
 let detailBody=null, dPtrs=new Map(), dPinch=0;
 function openDetail(b){
   if(b.m.status==='sealed'){toast(`봉인된 예언이에요 · ${fmtLong(b.m.sealUntil)}에 떠올라요`);return}
@@ -845,15 +926,15 @@ detail.addEventListener('pointermove',e=>{
 });
 ['pointerup','pointercancel'].forEach(t=>detail.addEventListener(t,e=>{dPtrs.delete(e.pointerId); if(dPtrs.size<2) dPinch=0}));
 
-// chrome 
+/* ---------- chrome ---------- */
 $('#dayBtn').onclick=passDay;
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'){ if(trashOpen) closeTrash(); else if(detailBody) closeDetail(); else if(secretMode) exitSecret(false); else if(writing) cancelWrite() }
+  if(e.key==='Escape'){ if(trashOpen) closeTrash(); else if(detailBody) closeDetail();  else if(writing) cancelWrite() }
   if((e.key==='m'||e.key==='M')&&document.activeElement!==input&&document.activeElement!==dText) sfx.toggle();
 });
 
 
-// trash screen: knock the stand five times 
+/* ---------- trash screen: knock the stand five times ---------- */
 const trashEl=$('#trash'), standEl=$('.stand'); let knocks=[], trashOpen=false, tg=null;
 standEl.addEventListener('pointerdown',e=>{
   sfx.unlock(); const t=performance.now(); knocks=knocks.filter(k=>t-k<2600); knocks.push(t);
@@ -904,17 +985,17 @@ trashEl.addEventListener('pointermove',e=>{
 });
 function trashUp(e){
   if(!tg||e.pointerId!==tg.id) return;
-  const el=tg.el, moved=tg.moved, v=velocity(tg.samples); tg=null; el.classList.remove('dragging');
-  const wr=wrap.getBoundingClientRect(), x=e.clientX-wr.left-C, y=e.clientY-wr.top-C;
-  const edge=e.clientX<12||e.clientY<12||e.clientX>innerWidth-12||e.clientY>innerHeight-12;
+  const el=tg.el, moved=tg.moved, v=velocity(tg.samples), ox=tg.ox, oy=tg.oy; tg=null; el.classList.remove('dragging');
+  /* moving a memo only moves it; it is gone for good only when thrown off the screen */
+  const px=e.clientX+v.x*600, py=e.clientY+v.y*600; /* where the memo would fly to if let go */
+  const offScreen=px<-20||py<-20||px>innerWidth+20||py>innerHeight+20;
+  const edge=e.clientX<10||e.clientY<10||e.clientX>innerWidth-10||e.clientY>innerHeight-10;
   const left=()=>state.trash.some(t=>!!t.m.secret===secretMode);
-  if(moved&&Math.hypot(x,y)<R){
-    restoreFromTrash(el._entry,x,y);
-    el.style.opacity='0'; setTimeout(()=>el.remove(),500);
-    if(!left()) setTimeout(closeTrash,500);
-  } else if(moved&&(Math.hypot(v.x,v.y)>0.9||edge)){
+  if(moved&&((Math.hypot(v.x,v.y)>1.2&&offScreen)||edge)){
     shatterForever(el,e.clientX,e.clientY,v);
     if(!left()) setTimeout(closeTrash,700);
+  } else if(moved){
+    el._home={x:e.clientX-ox, y:e.clientY-oy};
   } else el.style.transform=`translate(${el._home.x}px,${el._home.y}px)`;
 }
 function shatterForever(el,cx,cy,v){
@@ -933,7 +1014,7 @@ function shatterForever(el,cx,cy,v){
 trashEl.addEventListener('pointerup',trashUp);
 trashEl.addEventListener('pointercancel',trashUp);
 
-// boot 
+/* ---------- boot ---------- */
 measure();
 const bootMsgs=settle(); save();
 spawnAll(); renderSed(); updateFog(); updateDate();

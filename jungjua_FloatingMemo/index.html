@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -20,6 +20,7 @@
   --sediment-2:#a8a1de; /* 침전층 줄무늬 */
   --mint:#dcefd8;       /* 속마음 구슬 유리 */
   --leaf:#4e8f5a;       /* 속마음 메모 글자 */
+  --deep:#5b36d9;       /* 가장 오래된 침전층의 색 */
   --mute:#6f6a96;       /* 보조 글자 */
   --line:rgba(31,26,77,.18);
   --f-ui:"IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
@@ -53,7 +54,15 @@ header{padding-block:28px 0; position:relative; z-index:3}
 .stand i{display:block; background:var(--midnight)}
 .stand{cursor:pointer; transition:translate .09s}
 .orb{transition:background .6s; background:color-mix(in srgb, var(--frost), #dcefd8 calc(var(--mix,0) * 100%))}
-#wrap.secret{--amethyst:var(--leaf); --frost:var(--mint); --sediment:#bfdcbb; --sediment-2:#acd1a7}
+#wrap.secret{--deep:#3e9a50; --amethyst:var(--leaf); --frost:var(--mint); --sediment:#bfdcbb; --sediment-2:#acd1a7}
+body.secret{--amethyst:var(--leaf); --frost:var(--mint)}
+body.secret .tmemo{color:#8fbf95}
+/* green orb: title and bottom texts switch to greens with the same lightness as their violet versions */
+.label,.label .sub,footer,.meta .count,button{transition:color .6s}
+body.secret .label,body.secret .meta .count,body.secret button{color:#173d22}
+body.secret .label .sub,body.secret footer{color:#5e8a66}
+body.secret button:hover{color:var(--leaf)}
+body.secret .tmemo:hover,body.secret .tmemo.dragging{color:var(--leaf)}
 #wrap.secret .orb{background:color-mix(in srgb, #dcefd8, #dedcf2 calc(var(--mix,0) * 100%))}
 #wrap.secret #breathInput{color:var(--leaf); border-bottom-color:var(--leaf)}
 .stand.knock{translate:0 4px}
@@ -78,11 +87,19 @@ header{padding-block:28px 0; position:relative; z-index:3}
 .stand i:first-child{width:34%; height:30px}
 .stand i:last-child{width:52%; height:16px}
 .sed{position:absolute; left:0; right:0; bottom:0; transition:height .5s ease; background:var(--sediment)}
-.sed.hot{box-shadow:inset 0 4px 0 var(--ember)}
-#sedLayers{position:absolute; inset:0; display:flex; flex-direction:column}
-#sedLayers i{display:block; flex:1}
-#sedLabel{position:absolute; left:50%; bottom:10%; translate:-50% 0; font-size:11px; font-weight:600; color:var(--midnight); letter-spacing:.08em; white-space:nowrap; opacity:.6}
-#layer{position:absolute; inset:0}
+.sed.hot{box-shadow:inset 0 4px 0 #7fbf6a; min-height:10%}
+#wrap.secret .sed.hot{box-shadow:inset 0 4px 0 #6b3fe0}
+#sedLayers{position:absolute; inset:0}
+#sedLayers .layer{position:absolute; left:0; right:0; display:flex; align-items:center; justify-content:center; border-top:1px solid rgba(31,26,77,.08); cursor:grab; transition:filter .2s}
+#sedLayers .layer span{display:block; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--midnight); font-weight:400; line-height:1.2;
+  opacity:calc(.4 + var(--sl,0) * .4); filter:blur(calc((1 - var(--sl,0)) * 2.5px)); transition:opacity .2s, filter .2s}
+#sedLayers .layer:hover,#sedLayers .layer.grab{filter:brightness(.93)}
+#wrap.secret #sedLayers .layer span{color:#2f6b3a}
+#sedLayers .layer.dark span{color:#f4f1ff}
+#wrap.secret #sedLayers .layer.dark span{color:#eef8ea}
+#sedLayers .layer:hover span,#sedLayers .layer.grab span{opacity:1; filter:none}
+#sedLabel{position:absolute; left:50%; bottom:2%; translate:-50% 0; font-size:10px; font-weight:600; color:var(--midnight); white-space:nowrap; opacity:.55}
+#layer{position:absolute; inset:0; pointer-events:none}
 .fogwrap{position:absolute; inset:0; border-radius:50%; overflow:hidden; pointer-events:none}
 #fog{width:100%; height:100%; transition:opacity 1.2s ease;
   -webkit-mask-image:radial-gradient(circle at var(--lx,50%) var(--ly,50%), transparent var(--lr,0px), #000 var(--lr,0px));
@@ -111,7 +128,8 @@ header{padding-block:28px 0; position:relative; z-index:3}
 .bub.seed{background:var(--midnight); padding:0}
 .bub.seed .tx,.bub.seed img{display:none}
 .bub.rubbing{--lit:1!important; color:#9d98c6; scale:1.06}
-.bub.leaving{color:var(--ember)}
+.bub.leaving{color:#7fbf6a}
+#wrap.secret .bub.leaving{color:#6b3fe0}
 .bub.mergeTarget{scale:1.12; color:var(--midnight)}
 .bub.born{scale:.05}
 .bub.pop{scale:1.5; opacity:0!important; transition:scale .22s ease-out, opacity .22s}
