@@ -49,7 +49,7 @@ for(const m of state.memos) if(m.status==='sealed'){m.status='float'; delete m.s
 const now=()=>Date.now()+state.offset*DAY;
 const ageOf=m=>Math.max(0,(now()-m.touched)/DAY)*(m.secret?2:1);
 const bodies=new Map();
-let secretMode=false, secretT=0, exiting=false;
+let secretMode=false, secretT=0, exiting=false, writeFocusPending=false;
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const short=t=>{t=(t||'손글씨 메모').replace(/\n/g,' ');return t.length>14?t.slice(0,14)+'…':t};
 const fmtShort=ts=>{const d=new Date(ts);return `${d.getMonth()+1}/${d.getDate()}`};
@@ -523,7 +523,7 @@ function settle(){
 let writing=false, brCtx=null, stroke=null, hasInk=false, bbox=null;
 const ink=document.createElement('canvas'); let inkCtx=null;
 function enterWrite(p){
-  writing=true; wrap.classList.add('writing'); breathC.classList.remove('fade');
+  writing=true; writeFocusPending=true; wrap.classList.add('writing'); breathC.classList.remove('fade');
   breathC.style.transformOrigin=`${C+p.x}px ${C+p.y}px`;
   brCtx=breathC.getContext('2d'); paintFog(brCtx,1.55,Math.floor(Math.random()*999));
   ink.width=S*dpr; ink.height=S*dpr; inkCtx=ink.getContext('2d'); inkCtx.setTransform(dpr,0,0,dpr,0,0);
@@ -806,7 +806,12 @@ wrap.addEventListener('pointermove',e=>{
 });
 
 function release(e,cancelled){
-  if(writing){ clearTimeout(secretT); if(stroke&&e.pointerId===stroke.id) stroke=null; return }
+  if(writing){
+    clearTimeout(secretT); if(stroke&&e.pointerId===stroke.id) stroke=null;
+    /* iPad/iPhone only open the keyboard during a real touch, so focus the input when the long-pressing finger lifts */
+    if(writeFocusPending){ writeFocusPending=false; try{input.focus({preventScroll:true})}catch(_){} }
+    return;
+  }
   if(!ptrs.has(e.pointerId)) return;
   ptrs.delete(e.pointerId);
   if(pinch){ if(ptrs.size===0){clearTimeout(pinch.timer); if(pinch.same){const bb=bodies.get(pinch.same); bb&&bb.el.classList.remove('holding')} pinch=null} return }
@@ -860,6 +865,9 @@ function release(e,cancelled){
 wrap.addEventListener('pointerup',e=>release(e,false));
 wrap.addEventListener('pointercancel',e=>release(e,true));
 wrap.addEventListener('contextmenu',e=>e.preventDefault());
+/* while writing, the browser's own tap/click follow-ups must not pull focus away from the input */
+wrap.addEventListener('mousedown',e=>{ if(writing&&e.target!==input) e.preventDefault() });
+wrap.addEventListener('touchend',e=>{ if(writing&&e.target!==input&&e.cancelable) e.preventDefault() },{passive:false});
 
 /* lantern: the cursor or finger is a small light; only nearby stars bloom into words */
 const lamp={x:0,y:0,on:false,a:0}, lampEl=$('#lamp'); let lampT;

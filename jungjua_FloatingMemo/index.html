@@ -32,6 +32,9 @@
 [hidden]{display:none!important}
 .label .sub{font-size:.6em; font-weight:500; color:var(--mute)}
 html,body{height:100%; touch-action:none}
+/* iPad/iPhone: stop the system long-press menu and magnifier from cancelling the long press */
+*{-webkit-touch-callout:none}
+#breathInput,#dText{-webkit-touch-callout:default}
 body{
   background:var(--paper); color:var(--midnight); font-family:var(--f-ui); margin:0; overflow:hidden;
   display:grid; grid-template-rows:auto 1fr auto;
