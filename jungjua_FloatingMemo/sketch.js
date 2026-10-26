@@ -801,7 +801,7 @@ wrap.addEventListener('pointermove',e=>{
     const dx=p.x-prev.x;
     if(Math.abs(dx)>1){const dir=Math.sign(dx); if(dir!==g.lastDir){ if(g.lastDir&&g.acc>26) g.revs.push(p.t); g.acc=0; g.lastDir=dir } g.acc+=Math.abs(dx)}
     g.revs=g.revs.filter(t=>p.t-t<1100);
-    if(!g.shook&&!g.rewound&&Math.abs(g.wind)<Math.PI&&g.revs.length>=4){g.shook=true; shake(); sealHint.hidden=true}
+    /* shaking (zigzag) was removed */
   }
 });
 
@@ -908,7 +908,7 @@ let lastShake=0;
 window.addEventListener('devicemotion',e=>{
   const a=e.accelerationIncludingGravity; if(!a) return;
   const m=Math.hypot(a.x||0,a.y||0,a.z||0);
-  if(m>28&&performance.now()-lastShake>1800&&!writing&&detail.hidden){lastShake=performance.now(); shake()}
+  /* device shake no longer surfaces memos */
 });
 
 /* ---------- detail (look closer) ---------- */
